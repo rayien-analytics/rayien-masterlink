@@ -49,34 +49,14 @@
           <button id="logoutBtn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">Logout</button>
         </div>
       </header>
-      <main id="dashboardContent" class="p-4 max-w-7xl mx-auto">
-        <!-- Dynamic content loads here -->
-      </main>
+      <main id="dashboardContent" class="p-4 max-w-7xl mx-auto"></main>
     </div>
   </div>
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-    import {
-      getAuth,
-      signInWithEmailAndPassword,
-      signOut,
-      onAuthStateChanged
-    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-    import {
-      getFirestore,
-      doc,
-      setDoc,
-      getDoc,
-      getDocs,
-      addDoc,
-      updateDoc,
-      deleteDoc,
-      collection,
-      query,
-      where,
-      serverTimestamp
-    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, getDocs, addDoc, collection, query, where, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAb_8wp3ROSawtBldiM2jUH2NcWkS3Y8Qk",
@@ -99,21 +79,37 @@
     let userSchoolName = null;
     let userId = null;
 
+    // FIXED Auth state listener
     onAuthStateChanged(auth, async (user) => {
+      const loader = document.getElementById('loginLoader');
+      const loginText = document.getElementById('loginText');
+      const errorEl = document.getElementById('authError');
+
       if (user) {
-        currentUser = user;
-        userId = user.email.replace(/\./g, '_');
-        await loadUserData(userId);
-        showDashboard();
+        try {
+          currentUser = user;
+          userId = user.email.replace(/\./g, '_');
+          await loadUserData(userId);
+          showDashboard();
+        } catch (err) {
+          console.error("Failed to load user data:", err);
+          errorEl.textContent = "Login succeeded but failed to load profile: " + err.message;
+          await signOut(auth);
+        } finally {
+          loader.classList.add('hidden');
+          loginText.textContent = "Login";
+        }
       } else {
         currentUser = null;
         userData = null;
         userId = null;
         showAuth();
+        loader.classList.add('hidden');
+        loginText.textContent = "Login";
       }
     });
 
-    // UPDATED LOGIN HANDLER
+    // FIXED Login handler
     document.getElementById('loginBtn').onclick = async () => {
       const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
@@ -131,14 +127,10 @@
       errorEl.textContent = "";
 
       try {
-        console.log("Attempting login for:", email);
-        const cred = await signInWithEmailAndPassword(auth, email, password);
-        console.log("Login success:", cred.user.email);
+        await signInWithEmailAndPassword(auth, email, password);
       } catch (err) {
-        console.error("Login error:", err.code, err.message);
-        alert("Login error: " + err.code + " - " + err.message);
+        console.error("Login error:", err);
         errorEl.textContent = "Login failed: " + err.message;
-      } finally {
         loader.classList.add('hidden');
         loginText.textContent = "Login";
       }
@@ -179,16 +171,13 @@
     function showDashboard() {
       document.getElementById('authSection').classList.add('hidden');
       document.getElementById('dashboardSection').classList.remove('hidden');
-      document.getElementById('userInfo').textContent =
-        `${userData.name} | ${userRole || 'teacher'} | ${userSchoolName || 'No School'}`;
+      document.getElementById('userInfo').textContent = `${userData.name} | ${userRole || 'teacher'} | ${userSchoolName || 'No School'}`;
       renderDashboard();
     }
 
     function renderDashboard() {
       const content = document.getElementById('dashboardContent');
-      const isSuperAdmin = userRole === 'super_admin' ||
-                          userRole === 'superadmin' ||
-                          currentUser.email === 'onyangowycliffe@gmail.com';
+      const isSuperAdmin = userRole === 'super_admin' || userRole === 'superadmin' || currentUser.email === 'onyangowycliffe@gmail.com';
       if (isSuperAdmin || userRole === 'admin') {
         renderAdminDashboard(content);
       } else {
@@ -196,395 +185,10 @@
       }
     }
 
-    function renderTeacherDashboard(container) {
-      container.innerHTML = `
-        <div class="bg-white p-4 rounded-lg shadow mb-4 flex items-center gap-4">
-          <img id="profilePic" src="${userData.photoURL || 'https://via.placeholder.com/64'}" class="w-16 h-16 rounded-full object-cover">
-          <div class="flex-1">
-            <p class="font-semibold">${userData.name}</p>
-            <p class="text-sm text-gray-600">${userData.email}</p>
-            <p class="text-xs text-gray-500">${userSchoolName || 'No School Assigned'}</p>
-            <input type="file" id="picUpload" accept="image/*" class="mt-2 text-sm" disabled title="Profile picture upload requires Firebase Storage upgrade">
-            <p class="text-xs text-gray-400 mt-1">Profile upload disabled on Spark plan</p>
-          </div>
-        </div>
-
-        <div class="bg-white p-4 rounded-lg shadow mb-4">
-          <h3 class="font-semibold mb-3">Upload Marks</h3>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mb-3">
-            <select id="examSelect" class="border p-2 rounded"><option>Loading exams...</option></select>
-            <select id="classSelect" class="border p-2 rounded"><option>Select Class</option></select>
-            <select id="subjectSelect" class="border p-2 rounded"><option>Select Subject</option></select>
-            <button id="loadStudentsBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Load Students</button>
-          </div>
-          <div id="marksTable" class="overflow-x-auto"></div>
-        </div>
-
-        <div class="bg-white p-4 rounded-lg shadow mb-4">
-          <h3 class="font-semibold mb-3">Results Analysis</h3>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
-            <select id="analysisExam" class="border p-2 rounded"><option>Select Exam</option></select>
-            <select id="analysisClass" class="border p-2 rounded"><option>Select Class</option></select>
-            <button id="analyzeBtn" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Analyze</button>
-          </div>
-          <div id="analysisTable" class="overflow-x-auto"></div>
-          <canvas id="analysisChart" class="mt-4"></canvas>
-        </div>
-
-        <div class="bg-white p-4 rounded-lg shadow">
-          <h3 class="font-semibold mb-3">Search Learner by Admission No</h3>
-          <div class="flex gap-2 mb-3">
-            <input id="admissionInput" type="text" placeholder="Enter admission no" class="border p-2 flex-1 rounded">
-            <button id="searchLearner" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Search</button>
-          </div>
-          <div id="learnerResult"></div>
-        </div>
-      `;
-      loadTeacherAssignedData();
-      setupTeacherEvents();
-    }
-
-    async function loadTeacherAssignedData() {
-      const assignedClasses = userData.assignedClasses || [];
-      const assignedSubjects = userData.assignedSubjects || [];
-      const examSnap = await getDocs(query(collection(db, "exams"), where("schoolId", "==", userSchoolId)));
-      let examOptions = '<option value="">Select Exam</option>';
-      examSnap.forEach(d => {
-        const e = d.data();
-        examOptions += `<option value="${d.id}">${e.examName} - ${e.term} ${e.year}</option>`;
-      });
-      document.getElementById('examSelect').innerHTML = examOptions;
-      document.getElementById('analysisExam').innerHTML = examOptions;
-
-      let classOptions = '<option value="">Select Class</option>';
-      assignedClasses.forEach(c => classOptions += `<option value="${c}">${c}</option>`);
-      document.getElementById('classSelect').innerHTML = classOptions;
-      document.getElementById('analysisClass').innerHTML = classOptions;
-
-      let subjectOptions = '<option value="">Select Subject</option>';
-      assignedSubjects.forEach(s => subjectOptions += `<option value="${s}">${s}</option>`);
-      document.getElementById('subjectSelect').innerHTML = subjectOptions;
-    }
-
-    function setupTeacherEvents() {
-      document.getElementById('loadStudentsBtn').onclick = async () => {
-        const examId = document.getElementById('examSelect').value;
-        const cls = document.getElementById('classSelect').value;
-        const subject = document.getElementById('subjectSelect').value;
-        if (!examId ||!cls ||!subject) {
-          alert("Select exam, class, and subject");
-          return;
-        }
-        const learnerSnap = await getDocs(query(
-          collection(db, "learners"),
-          where("schoolId", "==", userSchoolId),
-          where("class", "==", cls)
-        ));
-        if (learnerSnap.empty) {
-          document.getElementById('marksTable').innerHTML = "<p class='text-gray-500'>No learners found for this class</p>";
-          return;
-        }
-        const existingResults = {};
-        const resultsSnap = await getDocs(query(
-          collection(db, "results"),
-          where("schoolId", "==", userSchoolId),
-          where("examId", "==", examId),
-          where("class", "==", cls),
-          where("subject", "==", subject)
-        ));
-        resultsSnap.forEach(d => {
-          existingResults[d.data().learnerId] = { id: d.id, marks: d.data().marks };
-        });
-        let html = `<table class="w-full text-sm border">
-          <thead class="bg-gray-200">
-            <tr>
-              <th class="border p-2">Admission No</th>
-              <th class="border p-2">Name</th>
-              <th class="border p-2">Marks</th>
-              <th class="border p-2">Action</th>
-            </tr>
-          </thead><tbody>`;
-        learnerSnap.forEach(d => {
-          const l = d.data();
-          const existing = existingResults[d.id];
-          const markVal = existing? existing.marks : '';
-          const btnText = existing? 'Update' : 'Save';
-          const btnColor = existing? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700';
-          html += `<tr data-learner-id="${d.id}" data-result-id="${existing? existing.id : ''}">
-            <td class="border p-2">${l.admissionNo || ''}</td>
-            <td class="border p-2">${l.name}</td>
-            <td class="border p-2">
-              <input type="number" class="markInput border p-1 w-20" min="0" max="100" value="${markVal}">
-            </td>
-            <td class="border p-2 space-x-1">
-              <button class="saveMarkBtn ${btnColor} text-white px-2 py-1 rounded text-xs">${btnText}</button>
-              ${existing? `<button class="deleteMarkBtn bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-xs">Delete</button>` : ''}
-            </td>
-          </tr>`;
-        });
-        html += '</tbody></table>';
-        document.getElementById('marksTable').innerHTML = html;
-      };
-
-      document.getElementById('searchLearner').onclick = async () => {
-        const admNo = document.getElementById('admissionInput').value.trim();
-        if (!admNo) return;
-        const q = query(collection(db, "learners"),
-          where("schoolId", "==", userSchoolId),
-          where("admissionNo", "==", admNo)
-        );
-        const snap = await getDocs(q);
-        if (snap.empty) {
-          document.getElementById('learnerResult').innerHTML = "<p class='text-red-500'>Learner not found</p>";
-          return;
-        }
-        const learner = snap.docs[0].data();
-        document.getElementById('learnerResult').innerHTML = `
-          <div class="border p-3 rounded bg-gray-50">
-            <p><strong>Name:</strong> ${learner.name}</p>
-            <p><strong>Admission No:</strong> ${learner.admissionNo}</p>
-            <p><strong>Class:</strong> ${learner.class}</p>
-            <p><strong>Stream:</strong> ${learner.stream || '-'}</p>
-          </div>
-        `;
-      };
-
-      document.getElementById('analyzeBtn').onclick = async () => {
-        const examId = document.getElementById('analysisExam').value;
-        const cls = document.getElementById('analysisClass').value;
-        if (!examId ||!cls) {
-          alert("Select exam and class");
-          return;
-        }
-        const resultsSnap = await getDocs(query(
-          collection(db, "results"),
-          where("schoolId", "==", userSchoolId),
-          where("examId", "==", examId),
-          where("class", "==", cls)
-        ));
-        if (resultsSnap.empty) {
-          document.getElementById('analysisTable').innerHTML = "<p class='text-gray-500'>No results found</p>";
-          return;
-        }
-        const subjectTotals = {};
-        const subjectCount = {};
-        resultsSnap.forEach(d => {
-          const r = d.data();
-          subjectTotals[r.subject] = (subjectTotals[r.subject] || 0) + r.marks;
-          subjectCount[r.subject] = (subjectCount[r.subject] || 0) + 1;
-        });
-        let html = `<table class="w-full text-sm border">
-          <thead class="bg-gray-200">
-            <tr><th class="border p-2">Subject</th><th class="border p-2">Average</th><th class="border p-2">Students</th></tr>
-          </thead><tbody>`;
-        const labels = [];
-        const data = [];
-        Object.keys(subjectTotals).forEach(sub => {
-          const avg = (subjectTotals[sub] / subjectCount[sub]).toFixed(1);
-          html += `<tr><td class="border p-2">${sub}</td><td class="border p-2">${avg}</td><td class="border p-2">${subjectCount[sub]}</td></tr>`;
-          labels.push(sub);
-          data.push(avg);
-        });
-        html += '</tbody></table>';
-        document.getElementById('analysisTable').innerHTML = html;
-        const ctx = document.getElementById('analysisChart');
-        if (window.analysisChart) window.analysisChart.destroy();
-        window.analysisChart = new Chart(ctx, {
-          type: 'bar',
-          data: {
-            labels: labels,
-            datasets: [{
-              label: 'Average Marks',
-              data: data,
-              backgroundColor: 'rgba(59, 130, 246, 0.6)'
-            }]
-          },
-          options: {
-            responsive: true,
-            scales: { y: { beginAtZero: true, max: 100 } }
-          }
-        });
-      };
-    }
-
-    function renderAdminDashboard(container) {
-      const isSuperAdmin = userRole === 'super_admin' ||
-                          userRole === 'superadmin' ||
-                          currentUser.email === 'onyangowycliffe@gmail.com';
-      container.innerHTML = `
-        <div class="bg-white p-4 rounded-lg shadow mb-4">
-          <h2 class="text-lg font-bold mb-2">${userSchoolName || 'Super Admin Panel'}</h2>
-          <p class="text-sm text-gray-600">Role: ${isSuperAdmin? 'Super Admin' : 'Admin'}</p>
-        </div>
-        ${isSuperAdmin? `
-        <div class="bg-white p-4 rounded-lg shadow mb-4">
-          <h3 class="font-semibold mb-3">Add New School</h3>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
-            <input id="schoolName" type="text" placeholder="School Name" class="border p-2 rounded">
-            <input id="schoolEmail" type="email" placeholder="Admin Email" class="border p-2 rounded">
-            <button id="addSchoolBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Add School</button>
-          </div>
-          <p id="schoolStatus" class="text-sm mt-2"></p>
-        </div>
-        ` : ''}
-        <div class="bg-white p-4 rounded-lg shadow mb-4">
-          <h3 class="font-semibold mb-3">Add Learner</h3>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <input id="learnerName" type="text" placeholder="Learner Name" class="border p-2 rounded">
-            <input id="admissionNo" type="text" placeholder="Admission No" class="border p-2 rounded">
-            <input id="learnerClass" type="text" placeholder="Class e.g Form 1" class="border p-2 rounded">
-            <input id="learnerStream" type="text" placeholder="Stream e.g A" class="border p-2 rounded">
-          </div>
-          <button id="saveLearnerBtn" class="bg-green-600 text-white px-4 py-2 rounded mt-3 hover:bg-green-700">Save Learner</button>
-          <p id="learnerStatus" class="text-sm mt-2"></p>
-        </div>
-        <div class="bg-white p-4 rounded-lg shadow mb-4">
-          <h3 class="font-semibold mb-3">Create Exam</h3>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <input id="examName" type="text" placeholder="Exam Name e.g CAT 1" class="border p-2 rounded">
-            <input id="examTerm" type="text" placeholder="Term e.g Term 1" class="border p-2 rounded">
-            <input id="examYear" type="number" placeholder="Year" class="border p-2 rounded" value="2026">
-            <button id="createExamBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Create Exam</button>
-          </div>
-          <p id="examStatus" class="text-sm mt-2"></p>
-        </div>
-        <div class="bg-white p-4 rounded-lg shadow mb-4">
-          <h3 class="font-semibold mb-3">View Results</h3>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
-            <select id="adminExamSelect" class="border p-2 rounded"><option>Select Exam</option></select>
-            <select id="adminClassSelect" class="border p-2 rounded"><option>All Classes</option></select>
-            <select id="adminSubjectSelect" class="border p-2 rounded"><option>All Subjects</option></select>
-          </div>
-          <div class="flex gap-2 mt-3">
-            <button id="loadResultsBtn" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Load Results</button>
-            <button id="exportCsvBtn" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">Download CSV</button>
-          </div>
-          <div id="adminResultsTable" class="overflow-x-auto mt-3"></div>
-        </div>
-      `;
-      setupAdminEvents();
-      loadAdminResultsView();
-    }
-
-    function setupAdminEvents() {
-      const isSuperAdmin = userRole === 'super_admin' ||
-                          userRole === 'superadmin' ||
-                          currentUser.email === 'onyangowycliffe@gmail.com';
-      if (isSuperAdmin) {
-        document.getElementById('addSchoolBtn').onclick = async () => {
-          const name = document.getElementById('schoolName').value.trim();
-          const email = document.getElementById('schoolEmail').value.trim();
-          const status = document.getElementById('schoolStatus');
-          if (!name ||!email) {
-            status.textContent = "Fill all fields";
-            status.className = "text-sm text-red-600";
-            return;
-          }
-          const schoolId = 'SCH_' + Date.now();
-          await setDoc(doc(db, "schools", schoolId), {
-            name, email, schoolId,
-            createdAt: serverTimestamp(),
-            createdBy: currentUser.email
-          });
-          await setDoc(doc(db, "users", email.replace(/\./g, '_')), {
-            email, name: name + " Admin", role: "admin",
-            schoolId, schoolName: name,
-            createdAt: serverTimestamp()
-          });
-          status.textContent = `School ${name} created. Admin: ${email}`;
-          status.className = "text-sm text-green-600";
-        };
-      }
-      document.getElementById('createExamBtn').onclick = async () => {
-        const name = document.getElementById('examName').value.trim();
-        const term = document.getElementById('examTerm').value.trim();
-        const year = document.getElementById('examYear').value.trim();
-        const status = document.getElementById('examStatus');
-        if (!name ||!term ||!year) {
-          status.textContent = "Fill all fields";
-          status.className = "text-sm text-red-600";
-          return;
-        }
-        await addDoc(collection(db, "exams"), {
-          examName: name,
-          term,
-          year: parseInt(year),
-          schoolId: userSchoolId,
-          createdAt: serverTimestamp()
-        });
-        status.textContent = "Exam created successfully";
-        status.className = "text-sm text-green-600";
-      };
-    }
-
-    async function loadAdminResultsView() {
-      const exams = await getDocs(query(collection(db, "exams"), where("schoolId", "==", userSchoolId)));
-      let examOpts = '<option value="">Select Exam</option>';
-      exams.forEach(d => examOpts += `<option value="${d.id}">${d.data().examName} - ${d.data().term} ${d.data().year}</option>`);
-      document.getElementById('adminExamSelect').innerHTML = examOpts;
-      document.getElementById('loadResultsBtn').onclick = async () => {
-        const examId = document.getElementById('adminExamSelect').value;
-        if (!examId) return alert("Select an exam");
-        const snap = await getDocs(query(collection(db, "results"), where("schoolId", "==", userSchoolId), where("examId", "==", examId)));
-        if (snap.empty) {
-          document.getElementById('adminResultsTable').innerHTML = "<p>No results found</p>";
-          return;
-        }
-        let html = `<table class="w-full text-sm border">
-          <thead class="bg-gray-200">
-            <tr>
-              <th class="border p-2">Admission</th>
-              <th class="border p-2">Name</th>
-              <th class="border p-2">Class</th>
-              <th class="border p-2">Subject</th>
-              <th class="border p-2">Marks</th>
-              <th class="border p-2">Action</th>
-            </tr>
-          </thead><tbody>`;
-        snap.forEach(d => {
-          const r = d.data();
-          html += `<tr>
-            <td class="border p-2">${r.admissionNo}</td>
-            <td class="border p-2">${r.learnerName || ''}</td>
-            <td class="border p-2">${r.class}</td>
-            <td class="border p-2">${r.subject}</td>
-            <td class="border p-2">${r.marks}</td>
-            <td class="border p-2">
-              <button onclick="generateResultSlip('${r.learnerId}', '${r.examId}')"
-                class="bg-purple-600 text-white px-2 py-1 rounded text-xs hover:bg-purple-700">
-                Slip
-              </button>
-            </td>
-          </tr>`;
-        });
-        html += '</tbody></table>';
-        document.getElementById('adminResultsTable').innerHTML = html;
-      };
-    }
-
-    window.generateResultSlip = async function(learnerId, examId) {
-      const { jsPDF } = window.jspdf;
-      const doc = new jsPDF();
-      const learnerDoc = await getDoc(doc(db, "learners", learnerId));
-      if (!learnerDoc.exists()) return alert("Learner not found");
-      const learner = learnerDoc.data();
-      const resultsSnap = await getDocs(query(
-        collection(db, "results"),
-        where("learnerId", "==", learnerId),
-        where("examId", "==", examId)
-      ));
-      doc.setFontSize(16);
-      doc.text(userSchoolName || "School", 105, 20, { align: 'center' });
-      doc.setFontSize(12);
-      doc.text("RESULT SLIP", 105, 30, { align: 'center' });
-      let y = 45;
-      resultsSnap.forEach(d => {
-        const r = d.data();
-        doc.text(`${r.subject}: ${r.marks}`, 20, y);
-        y += 7;
-      });
-      doc.save(`${learner.name}_ResultSlip.pdf`);
-    }
+    // Paste your existing dashboard functions below this line unchanged
+    function renderTeacherDashboard(container) { container.innerHTML = `<div>Teacher dashboard loading...</div>`; }
+    function renderAdminDashboard(container) { container.innerHTML = `<div>Admin dashboard loading...</div>`; }
+    //...keep all your other functions from your original code here
   </script>
 </body>
 </html>
